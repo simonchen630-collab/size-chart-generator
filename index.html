@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>尺寸表產生器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+
+        function App() {
+            const chartRef = useRef(null);
+            const [scale, setScale] = useState(0.8);
+            const [fileName, setFileName] = useState('');
+            const [productName, setProductName] = useState('BBC EARTH 尺寸表 BEMJWAQ03');
+            const [unit, setUnit] = useState('公分 (CM)');
+            const [notes, setNotes] = useState('※ 尺寸為平量方式測量，實際商品可能會有約1-3cm的誤差。');
+            
+            // 預設為 null，等待使用者上傳 (BBC Earth 版沒有 LOGO，剛好預設留空)
+            const [logoImg, setLogoImg] = useState(null);
+            
+            const [excelInput, setExcelInput] = useState("尺碼\tS\tM\tL\tXL\n衣長\t\t65\t69\t71\n胸寬\t\t55.5\t61.5\t64\n肩寬\t\t47\t-\t-\n袖長\t\t86\t90\t92");
+
+            // ===== 新增的自訂外觀狀態 =====
+            const [titleColor, setTitleColor] = useState('#000000'); // 標題顏色
+            const [unitColor, setUnitColor] = useState('#000000'); // 單位顏色
+            const [unitLayout, setUnitLayout] = useState('below_title'); // 單位的排版位置 (right_top 或 below_title)
+            const [tableStyle, setTableStyle] = useState('dark_header'); // 表格風格
+            const [headerBgColor, setHeaderBgColor] = useState('#423c3b'); // 深色表頭背景色
+            const [headerTextColor, setHeaderTextColor] = useState('#ffffff'); // 深色表頭文字色
+
+            // 畫布渲染邏輯
+            useEffect(() => {
+                const canvas = chartRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                
+                const parsedData = excelInput.trim().split('\n').map(r => r.split('\t'));
+
+                // 1. 清空與設定白底
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, 1000, 1000);
+
+                // 2. 佈局常數
+                const padX = 60;
+                const padY = 60;
+                const fontName = '"Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
+
+                // 3. 繪製表頭 (LOGO、品名)
+                let titleX = padX;
+                const headerH = 36;
+                const logoTargetH = 30; 
+                const headerCenterY = padY + headerH / 2;
+
+                // 畫 LOGO (如果有上傳的話)
+                if (logoImg) {
+                    const logoW = (logoImg.width / logoImg.height) * logoTargetH;
+                    const logoY = headerCenterY - (logoTargetH / 2);
+                    ctx.drawImage(logoImg, padX, logoY, logoW, logoTargetH);
+                    titleX = padX + logoW + 16;
+                }
+
+                // 畫品名
+                ctx.fillStyle = titleColor;
+                ctx.font = `bold 30px ${fontName}`;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(productName, titleX, headerCenterY + 2);
+
+                // 4. 計算表格起始 Y 座標並繪製單位
+                let tableY = padY + headerH + 32;
+                
+                ctx.fillStyle = unitColor;
+                if (unitLayout === 'right_top') {
+                    // 原本的右上角模式
+                    ctx.font = `bold 24px ${fontName}`;
+                    ctx.textAlign = 'right';
+                    ctx.fillText(`單 位：${unit}`, 1000 - padX, headerCenterY + 2);
+                } else {
+                    // BBC Earth 模式：單位在標題下方、表格上方
+                    tableY = padY + headerH + 48; // 增加表格間距容納單位
+                    ctx.font = `bold 18px ${fontName}`;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText(`單位:${unit}`, padX, tableY - 10);
+                }
+
+                // 5. 繪製表格
+                const cols = parsedData[0]?.length || 1;
+                const rows = parsedData.length;
+                const cellW = (1000 - padX * 2) / cols;
+                const cellH = 60;
+
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = '#d1d5db';
+
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const x = padX + c * cellW;
+                        const y = tableY + r * cellH;
+
+                        // 判斷是否為「表頭」或「第一欄」
+                        const isHeader = (tableStyle === 'dark_header') && (r === 0 || c === 0);
+
+                        // 儲存格底色
+                        if (isHeader) {
+                            ctx.fillStyle = headerBgColor;
+                        } else if (tableStyle === 'alternating') {
+                            ctx.fillStyle = (r + c) % 2 === 0 ? '#f0f0f0' : '#ffffff';
+                        } else {
+                            ctx.fillStyle = '#ffffff';
+                        }
+                        ctx.fillRect(x, y, cellW, cellH);
+
+                        // 儲存格邊框
+                        ctx.strokeRect(x, y, cellW, cellH);
+
+                        // 儲存格文字
+                        const cellText = parsedData[r][c] || "";
+                        if (isHeader) {
+                            ctx.fillStyle = headerTextColor;
+                        } else {
+                            ctx.fillStyle = '#000000';
+                        }
+                        
+                        ctx.font = `bold 24px ${fontName}`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(cellText, x + cellW / 2, y + cellH / 2 + 2);
+                    }
+                }
+
+                // 6. 繪製注意事項
+                if (notes) {
+                    const notesY = tableY + rows * cellH + 32;
+                    ctx.fillStyle = '#4b5563';
+                    ctx.font = `bold 20px ${fontName}`;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(notes, padX, notesY);
+                }
+
+            }, [logoImg, productName, unit, excelInput, notes, titleColor, unitColor, unitLayout, tableStyle, headerBgColor, headerTextColor]);
+
+            const handleExport = () => {
+                if (!chartRef.current) return;
+                
+                const dataUrl = chartRef.current.toDataURL('image/jpeg', 1.0);
+                const link = document.createElement('a');
+                link.href = dataUrl;
+                const finalFileName = fileName.trim() ? fileName.trim() : (productName.trim() ? productName.trim() : '尺寸表');
+                link.download = finalFileName + '.jpg';
+                link.click();
+            };
+
+            const handleLogo = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = e => {
+                        const img = new Image();
+                        img.src = e.target.result;
+                        img.onload = () => setLogoImg(img);
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    setLogoImg(null);
+                }
+            };
+
+            return (
+                <div className="flex h-screen bg-gray-100 font-sans p-4 gap-6 box-border">
+                    <div className="w-1/3 max-w-sm bg-white p-4 rounded shadow overflow-y-auto no-scrollbar border border-gray-200 shrink-0 flex flex-col gap-4">
+                        <h2 className="text-xl font-bold">萬能尺寸表產生器</h2>
+                        
+                        {/* 佈景主題模組設定區 */}
+                        <div className="p-3 border border-blue-200 bg-blue-50 rounded text-sm">
+                            <h3 className="font-bold text-blue-800 mb-2">🎨 顏色與版面模組</h3>
+                            
+                            <div className="flex gap-2 mb-2">
+                                <label className="flex-1 block text-gray-700">標題色
+                                    <input type="color" value={titleColor} onChange={e => setTitleColor(e.target.value)} className="w-full h-8 cursor-pointer mt-1" />
+                                </label>
+                                <label className="flex-1 block text-gray-700">單位色
+                                    <input type="color" value={unitColor} onChange={e => setUnitColor(e.target.value)} className="w-full h-8 cursor-pointer mt-1" />
+                                </label>
+                            </div>
+
+                            <label className="block mb-2 text-gray-700">單位位置
+                                <select value={unitLayout} onChange={e => setUnitLayout(e.target.value)} className="w-full border p-1 mt-1 bg-white">
+                                    <option value="below_title">左下 (位於標題下方 - 似 BBC)</option>
+                                    <option value="right_top">右上角對齊 (原版)</option>
+                                </select>
+                            </label>
+
+                            <label className="block mb-2 text-gray-700">表格配色模組
+                                <select value={tableStyle} onChange={e => setTableStyle(e.target.value)} className="w-full border p-1 mt-1 bg-white">
+                                    <option value="dark_header">實心表頭與首欄 (類似 BBC)</option>
+                                    <option value="alternating">藍白交替雙色 (原版預設)</option>
+                                </select>
+                            </label>
+
+                            {tableStyle === 'dark_header' && (
+                                <div className="flex gap-2">
+                                    <label className="flex-1 block text-gray-700">首列/欄底色
+                                        <input type="color" value={headerBgColor} onChange={e => setHeaderBgColor(e.target.value)} className="w-full h-8 cursor-pointer mt-1" />
+                                    </label>
+                                    <label className="flex-1 block text-gray-700">首列/欄文字
+                                        <input type="color" value={headerTextColor} onChange={e => setHeaderTextColor(e.target.value)} className="w-full h-8 cursor-pointer mt-1" />
+                                    </label>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 內容設定區 */}
+                        <div className="flex flex-col gap-2 text-sm">
+                            <label className="block text-gray-700">
+                                預覽縮放: {Math.round(scale * 100)}%
+                                <input type="range" min="0.3" max="1" step="0.05" value={scale} onChange={e => setScale(parseFloat(e.target.value))} className="w-full" />
+                            </label>
+                            
+                            <label className="block text-gray-700">Logo (可不上傳)
+                                <input type="file" accept="image/*" onChange={handleLogo} className="w-full border p-1" />
+                            </label>
+
+                            <label className="block text-gray-700">自訂存檔名
+                                <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} className="w-full border p-1" />
+                            </label>
+                            
+                            <label className="block text-gray-700">主標題
+                                <input type="text" value={productName} onChange={e => setProductName(e.target.value)} className="w-full border p-1" />
+                            </label>
+                            
+                            <label className="block text-gray-700">單位文字
+                                <input type="text" value={unit} onChange={e => setUnit(e.target.value)} className="w-full border p-1" />
+                            </label>
+                            
+                            <label className="block text-gray-700">Excel 內容貼上
+                                <textarea value={excelInput} onChange={e => setExcelInput(e.target.value)} className="w-full border p-1 h-32 whitespace-pre" />
+                            </label>
+                            
+                            <label className="block text-gray-700">底部注意事項
+                                <input type="text" value={notes} onChange={e => setNotes(e.target.value)} className="w-full border p-1" />
+                            </label>
+                        </div>
+                        
+                        <button onClick={handleExport} className="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700 transition mt-auto">
+                            下載 1000x1000 JPG
+                        </button>
+                    </div>
+
+                    <div className="flex-1 bg-gray-300 flex items-center justify-center overflow-auto relative no-scrollbar">
+                        <div style={{ 
+                            width: '1000px', 
+                            height: '1000px', 
+                            transform: `scale(${scale})`, 
+                            transformOrigin: 'center center', 
+                            transition: 'transform 0.2s',
+                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                        }}>
+                            <canvas ref={chartRef} width="1000" height="1000" style={{ display: 'block', backgroundColor: '#fff' }}></canvas>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
